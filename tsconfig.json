@@ -1,21 +1,38 @@
 {
   "compilerOptions": {
+    // コンパイル後のJavaScriptのバージョンを指定
     "target": "ES2020",
+    // クラスフィールドの定義方法を指定
     "useDefineForClassFields": true,
+    // 使用するライブラリを指定
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // モジュールシステムを指定
     "module": "ESNext",
+    // ライブラリの型チェックをスキップ
     "skipLibCheck": true,
+    // モジュール解決方法を指定
     "moduleResolution": "bundler",
+    // TypeScriptの拡張子のインポートを許可
     "allowImportingTsExtensions": true,
+    // JSONファイルのインポートを許可
     "resolveJsonModule": true,
+    // 各ファイルを独立したモジュールとして扱う
     "isolatedModules": true,
+    // JavaScriptファイルを出力しない
     "noEmit": true,
+    // JSXの変換方法を指定
     "jsx": "react-jsx",
+    // 厳格な型チェックを有効化
     "strict": true,
+    // 未使用のローカル変数をエラーにする
     "noUnusedLocals": true,
+    // 未使用のパラメータをエラーにする
     "noUnusedParameters": true,
+    // switch文のフォールスルーを禁止
     "noFallthroughCasesInSwitch": true
   },
+  // コンパイル対象のファイル
   "include": ["src"],
+  // 参照する設定ファイル
   "references": [{ "path": "./tsconfig.node.json" }]
 } 

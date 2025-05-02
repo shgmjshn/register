@@ -1,10 +1,16 @@
 {
   "compilerOptions": {
+    // プロジェクトの参照を有効化
     "composite": true,
+    // ライブラリの型チェックをスキップ
     "skipLibCheck": true,
+    // モジュールシステムを指定
     "module": "ESNext",
+    // モジュール解決方法を指定
     "moduleResolution": "bundler",
+    // デフォルトインポートを許可
     "allowSyntheticDefaultImports": true
   },
+  // コンパイル対象のファイル
   "include": ["vite.config.ts"]
 } 

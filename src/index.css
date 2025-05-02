@@ -1,3 +1,6 @@
+/* Tailwind CSSの基本スタイルをインポート */
 @tailwind base;
+/* Tailwind CSSのコンポーネントスタイルをインポート */
 @tailwind components;
+/* Tailwind CSSのユーティリティスタイルをインポート */
 @tailwind utilities; 

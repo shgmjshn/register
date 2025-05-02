@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 
+// 商品アイテムの型定義
 interface Item {
   name: string;
   price: number;
 }
 
+// 取引データの型定義
 interface Transaction {
   id?: string;
   items: Item[];
@@ -13,37 +15,50 @@ interface Transaction {
   created_at?: string;
 }
 
+// 日次売上の型定義
 interface DailySales {
   date: string;
   transactions: Transaction[];
   total: number;
 }
 
+// 商品マスタデータ
 const items: { [key: string]: Item } = {
   '席料': { name: '席料', price: 1000 },
   '回数券': { name: '回数券', price: 5000 },
   'その他': { name: 'その他', price: 0 }
 };
 
+// メインのアプリケーションコンポーネント
 export function App() {
+  // 現在の取引状態を管理するステート
   const [transaction, setTransaction] = useState<Transaction>({
     items: [],
     total: 0
   });
+  // その他商品の金額入力を管理するステート
   const [customPrice, setCustomPrice] = useState<string>('');
+  // 選択された商品を管理するステート
   const [selectedItem, setSelectedItem] = useState<string>('');
+  // 受け取った金額を管理するステート
   const [receivedAmount, setReceivedAmount] = useState<string>('');
+  // 日次売上データを管理するステート
   const [dailySales, setDailySales] = useState<DailySales[]>([]);
+  // 売上履歴の表示/非表示を管理するステート
   const [showSalesHistory, setShowSalesHistory] = useState(false);
+  // ローディング状態を管理するステート
   const [isLoading, setIsLoading] = useState(false);
 
+  // コンポーネントマウント時に売上履歴を取得
   useEffect(() => {
     fetchSalesHistory();
   }, []);
 
+  // 売上履歴をSupabaseから取得する関数
   const fetchSalesHistory = async () => {
     try {
       setIsLoading(true);
+      // 取引データを取得（作成日時の降順）
       const { data, error } = await supabase
         .from('transactions')
         .select('*')
@@ -75,34 +90,41 @@ export function App() {
     }
   };
 
+  // 商品を取引に追加する関数
   const handleAddItem = () => {
     if (!selectedItem) return;
     
     let price = items[selectedItem].price;
+    // その他商品の場合は入力された金額を使用
     if (selectedItem === 'その他') {
       price = Number(customPrice);
       if (price <= 0) return;
     }
 
+    // 取引に商品を追加し、合計金額を更新
     setTransaction(prev => ({
       items: [...prev.items, { name: selectedItem, price }],
       total: prev.total + price
     }));
+    // 入力フィールドをリセット
     setSelectedItem('');
     setCustomPrice('');
   };
 
+  // おつりを計算する関数
   const calculateChange = () => {
     const received = Number(receivedAmount);
     if (received < transaction.total) return '金額が不足しています';
     return received - transaction.total;
   };
 
+  // レジ締め処理を行う関数
   const handleCloseRegister = async () => {
     if (transaction.items.length === 0) return;
 
     try {
       setIsLoading(true);
+      // 取引データをSupabaseに保存
       const { error } = await supabase
         .from('transactions')
         .insert([transaction]);
@@ -123,10 +145,12 @@ export function App() {
     }
   };
 
+  // コンポーネントのレンダリング
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">会計システム</h1>
       
+      {/* 商品選択と追加セクション */}
       <div className="mb-4">
         <select
           value={selectedItem}
@@ -140,6 +164,7 @@ export function App() {
           ))}
         </select>
 
+        {/* その他商品の金額入力フィールド */}
         {selectedItem === 'その他' && (
           <input
             type="number"
@@ -160,6 +185,7 @@ export function App() {
         </button>
       </div>
 
+      {/* 現在の取引内容表示セクション */}
       <div className="mt-4">
         <h2 className="text-xl font-bold mb-2">現在の取引内容：</h2>
         {transaction.items.map((item, index) => (
@@ -172,6 +198,7 @@ export function App() {
         </div>
       </div>
 
+      {/* 支払い処理セクション */}
       <div className="mt-4">
         <h2 className="text-xl font-bold mb-2">お支払い：</h2>
         <div className="flex items-center gap-2">
@@ -194,6 +221,7 @@ export function App() {
         )}
       </div>
 
+      {/* レジ締めと売上履歴表示セクション */}
       <div className="mt-4 flex gap-2">
         <button
           onClick={handleCloseRegister}
@@ -211,6 +239,7 @@ export function App() {
         </button>
       </div>
 
+      {/* 売上履歴表示セクション */}
       {showSalesHistory && (
         <div className="mt-4">
           <h2 className="text-xl font-bold mb-2">売上履歴：</h2>
