@@ -38,13 +38,23 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 Object.defineProperty(exports, "__esModule", { value: true });
 var inquirer = require("inquirer");
 var items = {
-    '席料': { name: '席料', price: 1000 },
-    '回数券': { name: '回数券', price: 5000 },
+    '席料': { name: '席料', price: 0 },
+    '回数券': {
+        '一般': { name: '一般回数券', price: 4750 },
+        '女性': { name: '女性回数券', price: 3750 },
+        '高校生以下': { name: '高校生以下回数券', price: 3250 }
+    },
+    'ドリンク': {
+        'ビール': { name: 'ビール', price: 500 },
+        'チューハイ': { name: 'チューハイ', price: 300 },
+        'ペットボトル': { name: 'ペットボトル', price: 120 },
+        '缶・コーヒー': { name: '缶・コーヒー', price: 100 }
+    },
     'その他': { name: 'その他', price: 0 }
 };
 function main() {
     return __awaiter(this, void 0, void 0, function () {
-        var transaction, action, itemName, price, customPrice;
+        var transaction, action, category, itemName, price, customPrice;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -72,28 +82,51 @@ function main() {
                     return [4 /*yield*/, inquirer.prompt([
                             {
                                 type: 'list',
-                                name: 'itemName',
-                                message: '商品を選択してください：',
+                                name: 'category',
+                                message: 'カテゴリを選択してください：',
                                 choices: Object.keys(items)
                             }
                         ])];
                 case 3:
-                    itemName = (_a.sent()).itemName;
-                    price = items[itemName].price;
-                    if (!(itemName === 'その他')) return [3 /*break*/, 5];
-                    return [4 /*yield*/, inquirer.prompt([
-                            {
-                                type: 'number',
-                                name: 'customPrice',
-                                message: '金額を入力してください：',
-                                validate: function (input) { return input > 0 || '0より大きい数を入力してください'; }
-                            }
-                        ])];
+                    category = (_a.sent()).category;
+                    if (category === 'ドリンク' || category === '回数券') {
+                        return [4 /*yield*/, inquirer.prompt([
+                                {
+                                    type: 'list',
+                                    name: 'itemName',
+                                    message: category === 'ドリンク' ? 'ドリンクを選択してください：' : '回数券の種類を選択してください：',
+                                    choices: Object.keys(items[category])
+                                }
+                            ])];
+                    }
+                    else {
+                        itemName = category;
+                    }
+                    _a.label = 4;
                 case 4:
-                    customPrice = (_a.sent()).customPrice;
-                    price = customPrice;
+                    if (category === 'ドリンク' || category === '回数券') {
+                        itemName = (_a.sent()).itemName;
+                        price = items[category][itemName].price;
+                    }
+                    else if (itemName === '席料' || itemName === 'その他') {
+                        return [4 /*yield*/, inquirer.prompt([
+                                {
+                                    type: 'number',
+                                    name: 'customPrice',
+                                    message: '金額を入力してください：',
+                                    validate: function (input) { return input > 0 || '0より大きい数を入力してください'; }
+                                }
+                            ])];
+                    }
+                    else {
+                        price = items[itemName].price;
+                    }
                     _a.label = 5;
                 case 5:
+                    if (itemName === '席料' || itemName === 'その他') {
+                        customPrice = (_a.sent()).customPrice;
+                        price = customPrice;
+                    }
                     transaction.items.push({ name: itemName, price: price });
                     transaction.total += price;
                     _a.label = 6;
