@@ -7,6 +7,16 @@ interface Item {
   price: number;
 }
 
+// カテゴリの型定義
+interface Category {
+  [key: string]: Item;
+}
+
+// 商品マスタの型定義
+interface Items {
+  [key: string]: Item | Category;
+}
+
 // 取引データの型定義
 interface Transaction {
   id?: string;
@@ -23,9 +33,19 @@ interface DailySales {
 }
 
 // 商品マスタデータ
-const items: { [key: string]: Item } = {
-  '席料': { name: '席料', price: 1000 },
-  '回数券': { name: '回数券', price: 5000 },
+const items: Items = {
+  '席料': { name: '席料', price: 0 },
+  '回数券': {
+    '一般': { name: '一般回数券', price: 4750 },
+    '女性': { name: '女性回数券', price: 3750 },
+    '高校生以下': { name: '高校生以下回数券', price: 3250 }
+  },
+  'ドリンク': {
+    'ビール': { name: 'ビール', price: 500 },
+    'チューハイ': { name: 'チューハイ', price: 300 },
+    'ペットボトル': { name: 'ペットボトル', price: 120 },
+    '缶・コーヒー': { name: '缶・コーヒー', price: 100 }
+  },
   'その他': { name: 'その他', price: 0 }
 };
 
@@ -38,6 +58,8 @@ export function App() {
   });
   // その他商品の金額入力を管理するステート
   const [customPrice, setCustomPrice] = useState<string>('');
+  // 選択されたカテゴリを管理するステート
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
   // 選択された商品を管理するステート
   const [selectedItem, setSelectedItem] = useState<string>('');
   // 受け取った金額を管理するステート
@@ -58,7 +80,6 @@ export function App() {
   const fetchSalesHistory = async () => {
     try {
       setIsLoading(true);
-      // 取引データを取得（作成日時の降順）
       const { data, error } = await supabase
         .from('transactions')
         .select('*')
@@ -66,7 +87,6 @@ export function App() {
 
       if (error) throw error;
 
-      // 日付ごとにデータをグループ化
       const groupedData = data.reduce((acc: { [key: string]: DailySales }, curr: Transaction) => {
         const date = new Date(curr.created_at!).toLocaleDateString('ja-JP');
         if (!acc[date]) {
@@ -92,21 +112,31 @@ export function App() {
 
   // 商品を取引に追加する関数
   const handleAddItem = () => {
-    if (!selectedItem) return;
+    if (!selectedCategory) return;
     
-    let price = items[selectedItem].price;
-    // その他商品の場合は入力された金額を使用
-    if (selectedItem === 'その他') {
-      price = Number(customPrice);
-      if (price <= 0) return;
+    let price: number;
+    let itemName: string;
+
+    if (selectedCategory === 'ドリンク' || selectedCategory === '回数券') {
+      if (!selectedItem) return;
+      itemName = selectedItem;
+      price = (items[selectedCategory] as Category)[selectedItem].price;
+    } else {
+      itemName = selectedCategory;
+      if (itemName === '席料' || itemName === 'その他') {
+        price = Number(customPrice);
+        if (price <= 0) return;
+      } else {
+        price = (items[itemName] as Item).price;
+      }
     }
 
-    // 取引に商品を追加し、合計金額を更新
     setTransaction(prev => ({
-      items: [...prev.items, { name: selectedItem, price }],
+      items: [...prev.items, { name: itemName, price }],
       total: prev.total + price
     }));
-    // 入力フィールドをリセット
+
+    setSelectedCategory('');
     setSelectedItem('');
     setCustomPrice('');
   };
@@ -124,17 +154,14 @@ export function App() {
 
     try {
       setIsLoading(true);
-      // 取引データをSupabaseに保存
       const { error } = await supabase
         .from('transactions')
         .insert([transaction]);
 
       if (error) throw error;
 
-      // 売上履歴を更新
       await fetchSalesHistory();
 
-      // 取引をリセット
       setTransaction({ items: [], total: 0 });
       setReceivedAmount('');
     } catch (error) {
@@ -153,19 +180,37 @@ export function App() {
       {/* 商品選択と追加セクション */}
       <div className="mb-4">
         <select
-          value={selectedItem}
-          onChange={(e) => setSelectedItem(e.target.value)}
+          value={selectedCategory}
+          onChange={(e) => {
+            setSelectedCategory(e.target.value);
+            setSelectedItem('');
+          }}
           className="border p-2 rounded mr-2"
           disabled={isLoading}
         >
-          <option value="">商品を選択</option>
-          {Object.keys(items).map(item => (
-            <option key={item} value={item}>{item}</option>
+          <option value="">カテゴリを選択</option>
+          {Object.keys(items).map(category => (
+            <option key={category} value={category}>{category}</option>
           ))}
         </select>
 
-        {/* その他商品の金額入力フィールド */}
-        {selectedItem === 'その他' && (
+        {/* ドリンクまたは回数券の場合、サブカテゴリを表示 */}
+        {(selectedCategory === 'ドリンク' || selectedCategory === '回数券') && (
+          <select
+            value={selectedItem}
+            onChange={(e) => setSelectedItem(e.target.value)}
+            className="border p-2 rounded mr-2"
+            disabled={isLoading}
+          >
+            <option value="">{selectedCategory === 'ドリンク' ? 'ドリンク' : '回数券'}を選択</option>
+            {Object.keys(items[selectedCategory] as Category).map(item => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        )}
+
+        {/* 席料またはその他の場合、金額入力フィールドを表示 */}
+        {(selectedCategory === '席料' || selectedCategory === 'その他') && (
           <input
             type="number"
             value={customPrice}
@@ -248,9 +293,23 @@ export function App() {
           ) : (
             dailySales.map((day, index) => (
               <div key={index} className="mb-4 p-4 border rounded">
-                <div className="font-bold">{day.date}</div>
-                <div>取引数: {day.transactions.length}件</div>
-                <div>合計売上: {day.total}円</div>
+                <h3 className="font-bold">{day.date}</h3>
+                {day.transactions.map((transaction, tIndex) => (
+                  <div key={tIndex} className="mt-2">
+                    <div>取引 {tIndex + 1}:</div>
+                    {transaction.items.map((item, iIndex) => (
+                      <div key={iIndex} className="ml-4">
+                        {item.name}: {item.price}円
+                      </div>
+                    ))}
+                    <div className="ml-4 font-bold">
+                      合計: {transaction.total}円
+                    </div>
+                  </div>
+                ))}
+                <div className="mt-2 font-bold">
+                  日計: {day.total}円
+                </div>
               </div>
             ))
           )}
