@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from './lib/supabase';
+import { supabase, handleSupabaseError } from './lib/supabase';
 
 // 商品アイテムの型定義
 interface Item {
@@ -100,6 +100,7 @@ export function App() {
         }
       } catch (error) {
         console.error('現在の取引の取得に失敗しました:', error);
+        alert(handleSupabaseError(error));
       }
     };
 
@@ -156,7 +157,7 @@ export function App() {
       setDailySales(Object.values(groupedData));
     } catch (error) {
       console.error('売上履歴の取得に失敗しました:', error);
-      alert('売上履歴の取得に失敗しました');
+      alert(handleSupabaseError(error));
     } finally {
       setIsLoading(false);
     }
@@ -214,7 +215,7 @@ export function App() {
       setCustomPrice('');
     } catch (error) {
       console.error('取引の更新に失敗しました:', error);
-      alert('取引の更新に失敗しました');
+      alert(handleSupabaseError(error));
     } finally {
       setIsLoading(false);
     }
@@ -249,7 +250,7 @@ export function App() {
       setReceivedAmount('');
     } catch (error) {
       console.error('レジ締めに失敗しました:', error);
-      alert('レジ締めに失敗しました');
+      alert(handleSupabaseError(error));
     } finally {
       setIsLoading(false);
     }
@@ -274,7 +275,7 @@ export function App() {
       setEditingTransaction(null);
     } catch (error) {
       console.error('取引の更新に失敗しました:', error);
-      alert('取引の更新に失敗しました');
+      alert(handleSupabaseError(error));
     } finally {
       setIsLoading(false);
     }
@@ -296,7 +297,7 @@ export function App() {
       await fetchSalesHistory();
     } catch (error) {
       console.error('取引の削除に失敗しました:', error);
-      alert('取引の削除に失敗しました');
+      alert(handleSupabaseError(error));
     } finally {
       setIsLoading(false);
     }
