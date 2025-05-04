@@ -15,4 +15,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Supabaseクライアントのインスタンスを作成してエクスポート
-export const supabase = createClient(supabaseUrl, supabaseAnonKey); 
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10
+    }
+  },
+  db: {
+    schema: 'public'
+  }
+}); 

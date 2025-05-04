@@ -23,6 +23,8 @@ interface Transaction {
   items: Item[];
   total: number;
   created_at?: string;
+  is_closed?: boolean;  // レジ締め状態を管理
+  is_current?: boolean;  // 現在の取引かどうかを示すフラグ
 }
 
 // 日次売上の型定義
@@ -70,10 +72,60 @@ export function App() {
   const [showSalesHistory, setShowSalesHistory] = useState(false);
   // ローディング状態を管理するステート
   const [isLoading, setIsLoading] = useState(false);
+  // 編集対象の取引を管理するステート
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  // 編集モーダルの表示/非表示を管理するステート
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // コンポーネントマウント時に売上履歴を取得
   useEffect(() => {
     fetchSalesHistory();
+  }, []);
+
+  // リアルタイム同期の設定
+  useEffect(() => {
+    // 現在の取引を取得
+    const fetchCurrentTransaction = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('is_current', true)
+          .single();
+
+        if (error && error.code !== 'PGRST116') throw error;  // PGRST116はデータが存在しない場合のエラー
+
+        if (data) {
+          setTransaction(data);
+        }
+      } catch (error) {
+        console.error('現在の取引の取得に失敗しました:', error);
+      }
+    };
+
+    // 初期データ取得
+    fetchCurrentTransaction();
+
+    // リアルタイム更新の購読
+    const subscription = supabase
+      .channel('current_transaction')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'transactions',
+        filter: 'is_current=eq.true'
+      }, (payload) => {
+        if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+          setTransaction(payload.new as Transaction);
+        } else if (payload.eventType === 'DELETE') {
+          setTransaction({ items: [], total: 0 });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // 売上履歴をSupabaseから取得する関数
@@ -111,7 +163,7 @@ export function App() {
   };
 
   // 商品を取引に追加する関数
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     if (!selectedCategory) return;
     
     let price: number;
@@ -131,14 +183,41 @@ export function App() {
       }
     }
 
-    setTransaction(prev => ({
-      items: [...prev.items, { name: itemName, price }],
-      total: prev.total + price
-    }));
+    const newTransaction = {
+      ...transaction,
+      items: [...transaction.items, { name: itemName, price }],
+      total: transaction.total + price,
+      is_current: true
+    };
 
-    setSelectedCategory('');
-    setSelectedItem('');
-    setCustomPrice('');
+    try {
+      setIsLoading(true);
+      if (transaction.id) {
+        // 既存の取引を更新
+        const { error } = await supabase
+          .from('transactions')
+          .update(newTransaction)
+          .eq('id', transaction.id);
+
+        if (error) throw error;
+      } else {
+        // 新しい取引を作成
+        const { error } = await supabase
+          .from('transactions')
+          .insert([newTransaction]);
+
+        if (error) throw error;
+      }
+
+      setSelectedCategory('');
+      setSelectedItem('');
+      setCustomPrice('');
+    } catch (error) {
+      console.error('取引の更新に失敗しました:', error);
+      alert('取引の更新に失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // おつりを計算する関数
@@ -156,12 +235,16 @@ export function App() {
       setIsLoading(true);
       const { error } = await supabase
         .from('transactions')
-        .insert([transaction]);
+        .update({
+          ...transaction,
+          is_closed: true,
+          is_current: false
+        })
+        .eq('id', transaction.id);
 
       if (error) throw error;
 
       await fetchSalesHistory();
-
       setTransaction({ items: [], total: 0 });
       setReceivedAmount('');
     } catch (error) {
@@ -172,112 +255,174 @@ export function App() {
     }
   };
 
+  // 取引データを更新する関数
+  const handleUpdateTransaction = async (updatedTransaction: Transaction) => {
+    try {
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('transactions')
+        .update({
+          items: updatedTransaction.items,
+          total: updatedTransaction.total
+        })
+        .eq('id', updatedTransaction.id);
+
+      if (error) throw error;
+
+      await fetchSalesHistory();
+      setIsEditModalOpen(false);
+      setEditingTransaction(null);
+    } catch (error) {
+      console.error('取引の更新に失敗しました:', error);
+      alert('取引の更新に失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 取引データを削除する関数
+  const handleDeleteTransaction = async (transactionId: string) => {
+    if (!window.confirm('この取引を削除してもよろしいですか？')) return;
+
+    try {
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', transactionId);
+
+      if (error) throw error;
+
+      await fetchSalesHistory();
+    } catch (error) {
+      console.error('取引の削除に失敗しました:', error);
+      alert('取引の削除に失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 編集モーダルを開く関数
+  const openEditModal = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setIsEditModalOpen(true);
+  };
+
   // コンポーネントのレンダリング
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">会計システム</h1>
+    <div className="container mx-auto p-4 max-w-4xl">
+      <h1 className="text-3xl font-bold mb-6 text-center">会計システム</h1>
       
       {/* 商品選択と追加セクション */}
-      <div className="mb-4">
-        <select
-          value={selectedCategory}
-          onChange={(e) => {
-            setSelectedCategory(e.target.value);
-            setSelectedItem('');
-          }}
-          className="border p-2 rounded mr-2"
-          disabled={isLoading}
-        >
-          <option value="">カテゴリを選択</option>
-          {Object.keys(items).map(category => (
-            <option key={category} value={category}>{category}</option>
-          ))}
-        </select>
-
-        {/* ドリンクまたは回数券の場合、サブカテゴリを表示 */}
-        {(selectedCategory === 'ドリンク' || selectedCategory === '回数券') && (
+      <div className="bg-white p-4 rounded-lg shadow-md mb-6">
+        <h2 className="text-xl font-bold mb-4">商品選択</h2>
+        <div className="flex flex-wrap gap-2">
           <select
-            value={selectedItem}
-            onChange={(e) => setSelectedItem(e.target.value)}
-            className="border p-2 rounded mr-2"
+            value={selectedCategory}
+            onChange={(e) => {
+              setSelectedCategory(e.target.value);
+              setSelectedItem('');
+            }}
+            className="border p-2 rounded flex-1 min-w-[200px]"
             disabled={isLoading}
           >
-            <option value="">{selectedCategory === 'ドリンク' ? 'ドリンク' : '回数券'}を選択</option>
-            {Object.keys(items[selectedCategory] as Category).map(item => (
-              <option key={item} value={item}>{item}</option>
+            <option value="">カテゴリを選択</option>
+            {Object.keys(items).map(category => (
+              <option key={category} value={category}>{category}</option>
             ))}
           </select>
-        )}
 
-        {/* 席料またはその他の場合、金額入力フィールドを表示 */}
-        {(selectedCategory === '席料' || selectedCategory === 'その他') && (
-          <input
-            type="number"
-            value={customPrice}
-            onChange={(e) => setCustomPrice(e.target.value)}
-            placeholder="金額を入力"
-            className="border p-2 rounded mr-2"
+          {/* ドリンクまたは回数券の場合、サブカテゴリを表示 */}
+          {(selectedCategory === 'ドリンク' || selectedCategory === '回数券') && (
+            <select
+              value={selectedItem}
+              onChange={(e) => setSelectedItem(e.target.value)}
+              className="border p-2 rounded flex-1 min-w-[200px]"
+              disabled={isLoading}
+            >
+              <option value="">{selectedCategory === 'ドリンク' ? 'ドリンク' : '回数券'}を選択</option>
+              {Object.keys(items[selectedCategory] as Category).map(item => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          )}
+
+          {/* 席料またはその他の場合、金額入力フィールドを表示 */}
+          {(selectedCategory === '席料' || selectedCategory === 'その他') && (
+            <input
+              type="number"
+              value={customPrice}
+              onChange={(e) => setCustomPrice(e.target.value)}
+              placeholder="金額を入力"
+              className="border p-2 rounded flex-1 min-w-[200px]"
+              disabled={isLoading}
+            />
+          )}
+
+          <button
+            onClick={handleAddItem}
+            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:bg-gray-300 transition-colors"
             disabled={isLoading}
-          />
-        )}
-
-        <button
-          onClick={handleAddItem}
-          className="bg-blue-500 text-white px-4 py-2 rounded disabled:bg-gray-300"
-          disabled={isLoading}
-        >
-          追加
-        </button>
+          >
+            追加
+          </button>
+        </div>
       </div>
 
       {/* 現在の取引内容表示セクション */}
-      <div className="mt-4">
-        <h2 className="text-xl font-bold mb-2">現在の取引内容：</h2>
-        {transaction.items.map((item, index) => (
-          <div key={index} className="mb-1">
-            {item.name}: {item.price}円
+      <div className="bg-white p-4 rounded-lg shadow-md mb-6">
+        <h2 className="text-xl font-bold mb-4">現在の取引内容</h2>
+        <div className="space-y-2">
+          {transaction.items.map((item, index) => (
+            <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+              <span>{item.name}</span>
+              <span className="font-medium">{item.price.toLocaleString()}円</span>
+            </div>
+          ))}
+          <div className="border-t pt-2 mt-2">
+            <div className="flex justify-between items-center font-bold text-lg">
+              <span>合計</span>
+              <span>{transaction.total.toLocaleString()}円</span>
+            </div>
           </div>
-        ))}
-        <div className="font-bold mt-2">
-          合計: {transaction.total}円
         </div>
       </div>
 
       {/* 支払い処理セクション */}
-      <div className="mt-4">
-        <h2 className="text-xl font-bold mb-2">お支払い：</h2>
+      <div className="bg-white p-4 rounded-lg shadow-md mb-6">
+        <h2 className="text-xl font-bold mb-4">お支払い</h2>
         <div className="flex items-center gap-2">
           <input
             type="number"
             value={receivedAmount}
             onChange={(e) => setReceivedAmount(e.target.value)}
             placeholder="受け取った金額"
-            className="border p-2 rounded"
+            className="border p-2 rounded flex-1"
             disabled={isLoading}
           />
-          <span>円</span>
+          <span className="font-medium">円</span>
         </div>
         {receivedAmount && (
-          <div className="mt-2">
-            <div className="font-bold">
-              おつり: {typeof calculateChange() === 'number' ? `${calculateChange()}円` : calculateChange()}
+          <div className="mt-4 p-3 bg-gray-50 rounded">
+            <div className="font-bold text-lg">
+              おつり: {typeof calculateChange() === 'number' ? `${calculateChange().toLocaleString()}円` : calculateChange()}
             </div>
           </div>
         )}
       </div>
 
       {/* レジ締めと売上履歴表示セクション */}
-      <div className="mt-4 flex gap-2">
+      <div className="flex gap-4 mb-6">
         <button
           onClick={handleCloseRegister}
           disabled={transaction.items.length === 0 || isLoading}
-          className="bg-green-500 text-white px-4 py-2 rounded disabled:bg-gray-300"
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg flex-1 disabled:bg-gray-300 transition-colors"
         >
           {isLoading ? '処理中...' : 'レジ締め'}
         </button>
         <button
           onClick={() => setShowSalesHistory(!showSalesHistory)}
-          className="bg-gray-500 text-white px-4 py-2 rounded"
+          className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg flex-1 transition-colors"
           disabled={isLoading}
         >
           {showSalesHistory ? '売上履歴を隠す' : '売上履歴を表示'}
@@ -286,33 +431,152 @@ export function App() {
 
       {/* 売上履歴表示セクション */}
       {showSalesHistory && (
-        <div className="mt-4">
-          <h2 className="text-xl font-bold mb-2">売上履歴：</h2>
+        <div className="bg-white p-4 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4">売上履歴</h2>
           {isLoading ? (
-            <div>読み込み中...</div>
+            <div className="text-center py-4">読み込み中...</div>
           ) : (
             dailySales.map((day, index) => (
-              <div key={index} className="mb-4 p-4 border rounded">
-                <h3 className="font-bold">{day.date}</h3>
-                {day.transactions.map((transaction, tIndex) => (
-                  <div key={tIndex} className="mt-2">
-                    <div>取引 {tIndex + 1}:</div>
-                    {transaction.items.map((item, iIndex) => (
-                      <div key={iIndex} className="ml-4">
-                        {item.name}: {item.price}円
+              <div key={index} className="mb-6 last:mb-0">
+                <h3 className="font-bold text-lg mb-3 pb-2 border-b">{day.date}</h3>
+                <div className="space-y-4">
+                  {day.transactions.map((transaction, tIndex) => (
+                    <div key={tIndex} className="bg-gray-50 p-3 rounded">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="font-medium">取引 {tIndex + 1}</div>
+                        <div className="space-x-2">
+                          <button
+                            onClick={() => openEditModal(transaction)}
+                            className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors"
+                            disabled={isLoading}
+                          >
+                            編集
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTransaction(transaction.id!)}
+                            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors"
+                            disabled={isLoading}
+                          >
+                            削除
+                          </button>
+                        </div>
                       </div>
-                    ))}
-                    <div className="ml-4 font-bold">
-                      合計: {transaction.total}円
+                      <div className="space-y-1">
+                        {transaction.items.map((item, iIndex) => (
+                          <div key={iIndex} className="flex justify-between items-center text-sm">
+                            <span>{item.name}</span>
+                            <span>{item.price.toLocaleString()}円</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-center font-bold pt-2 border-t mt-2">
+                          <span>小計</span>
+                          <span>{transaction.total.toLocaleString()}円</span>
+                        </div>
+                      </div>
                     </div>
+                  ))}
+                  <div className="flex justify-between items-center font-bold text-lg pt-2 border-t mt-4">
+                    <span>日計</span>
+                    <span>{day.total.toLocaleString()}円</span>
                   </div>
-                ))}
-                <div className="mt-2 font-bold">
-                  日計: {day.total}円
                 </div>
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* 編集モーダル */}
+      {isEditModalOpen && editingTransaction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-lg w-full max-w-lg">
+            <h3 className="text-xl font-bold mb-4">取引の編集</h3>
+            <div className="space-y-4">
+              {editingTransaction.items.map((item, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={item.name}
+                    onChange={(e) => {
+                      const newItems = [...editingTransaction.items];
+                      newItems[index] = { ...item, name: e.target.value };
+                      setEditingTransaction({
+                        ...editingTransaction,
+                        items: newItems,
+                        total: newItems.reduce((sum, item) => sum + item.price, 0)
+                      });
+                    }}
+                    className="border p-2 rounded flex-1"
+                    placeholder="商品名"
+                  />
+                  <input
+                    type="number"
+                    value={item.price}
+                    onChange={(e) => {
+                      const newItems = [...editingTransaction.items];
+                      newItems[index] = { ...item, price: Number(e.target.value) };
+                      setEditingTransaction({
+                        ...editingTransaction,
+                        items: newItems,
+                        total: newItems.reduce((sum, item) => sum + item.price, 0)
+                      });
+                    }}
+                    className="border p-2 rounded w-32"
+                    placeholder="金額"
+                  />
+                  <button
+                    onClick={() => {
+                      const newItems = editingTransaction.items.filter((_, i) => i !== index);
+                      setEditingTransaction({
+                        ...editingTransaction,
+                        items: newItems,
+                        total: newItems.reduce((sum, item) => sum + item.price, 0)
+                      });
+                    }}
+                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded transition-colors"
+                  >
+                    削除
+                  </button>
+                </div>
+              ))}
+              <div className="flex justify-between items-center pt-4 border-t">
+                <button
+                  onClick={() => {
+                    const newItems = [...editingTransaction.items, { name: '', price: 0 }];
+                    setEditingTransaction({
+                      ...editingTransaction,
+                      items: newItems,
+                      total: newItems.reduce((sum, item) => sum + item.price, 0)
+                    });
+                  }}
+                  className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded transition-colors"
+                >
+                  項目を追加
+                </button>
+                <div className="font-bold text-lg">
+                  合計: {editingTransaction.total.toLocaleString()}円
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                <button
+                  onClick={() => {
+                    setIsEditModalOpen(false);
+                    setEditingTransaction(null);
+                  }}
+                  className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => handleUpdateTransaction(editingTransaction)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded transition-colors"
+                  disabled={isLoading}
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
