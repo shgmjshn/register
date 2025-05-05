@@ -34,6 +34,13 @@ interface DailySales {
   total: number;
 }
 
+// レジ残高の型定義
+interface RegisterBalance {
+  id: string;
+  cash: number;
+  last_updated: string;
+}
+
 // 商品マスタデータ
 const items: Items = {
   '席料': { name: '席料', price: 0 },
@@ -76,36 +83,65 @@ export function App() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   // 編集モーダルの表示/非表示を管理するステート
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  // レジ残高を管理するステート
+  const [registerBalance, setRegisterBalance] = useState<RegisterBalance>({
+    id: '1',
+    cash: 0,
+    last_updated: new Date().toISOString()
+  });
+  // 支出金額を管理するステート
+  const [expenseAmount, setExpenseAmount] = useState('');
 
   // コンポーネントマウント時に売上履歴を取得
   useEffect(() => {
     fetchSalesHistory();
   }, []);
 
+  // 現在の取引を取得する関数
+  const fetchCurrentTransaction = async () => {
+    try {
+      console.log('現在の取引を取得中...');
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .filter('is_current', 'eq', true)
+        .maybeSingle();
+
+      console.log('取得結果:', { data, error });
+
+      if (error) {
+        console.error('取引取得エラー:', error);
+        if (error.code === 'PGRST116') {
+          // データが存在しない場合は新しい取引を作成
+          const newTransaction = { items: [], total: 0, is_current: true };
+          console.log('新しい取引を作成:', newTransaction);
+          setTransaction(newTransaction);
+          return;
+        }
+        throw error;
+      }
+
+      if (data) {
+        console.log('取引データを設定:', data);
+        setTransaction(data);
+      } else {
+        console.log('取引データなし、新しい取引を作成');
+        const newTransaction = { items: [], total: 0, is_current: true };
+        setTransaction(newTransaction);
+      }
+    } catch (error) {
+      console.error('現在の取引の取得に失敗しました:', error);
+      alert('現在の取引の取得に失敗しました');
+    }
+  };
+
   // リアルタイム同期の設定
   useEffect(() => {
-    // 現在の取引を取得
-    const fetchCurrentTransaction = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('is_current', true)
-          .single();
-
-        if (error && error.code !== 'PGRST116') throw error;  // PGRST116はデータが存在しない場合のエラー
-
-        if (data) {
-          setTransaction(data);
-        }
-      } catch (error) {
-        console.error('現在の取引の取得に失敗しました:', error);
-        alert(handleSupabaseError(error));
-      }
-    };
-
+    console.log('コンポーネントマウント: 初期データ取得開始');
     // 初期データ取得
     fetchCurrentTransaction();
+    fetchSalesHistory();
+    fetchRegisterBalance();
 
     // リアルタイム更新の購読
     const subscription = supabase
@@ -116,15 +152,17 @@ export function App() {
         table: 'transactions',
         filter: 'is_current=eq.true'
       }, (payload) => {
+        console.log('リアルタイム更新を受信:', payload);
         if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
           setTransaction(payload.new as Transaction);
         } else if (payload.eventType === 'DELETE') {
-          setTransaction({ items: [], total: 0 });
+          setTransaction({ items: [], total: 0, is_current: true });
         }
       })
       .subscribe();
 
     return () => {
+      console.log('コンポーネントアンマウント: 購読解除');
       subscription.unsubscribe();
     };
   }, []);
@@ -163,6 +201,51 @@ export function App() {
     }
   };
 
+  // レジ残高を取得する関数
+  const fetchRegisterBalance = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('register_balance')
+        .select('*')
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // データが存在しない場合は初期化
+          const initialBalance = {
+            id: '1',
+            cash: 0,
+            last_updated: new Date().toISOString()
+          };
+          
+          // 既存のデータを確認
+          const { data: existingData } = await supabase
+            .from('register_balance')
+            .select('*')
+            .limit(1);
+
+          if (!existingData || existingData.length === 0) {
+            const { error: insertError } = await supabase
+              .from('register_balance')
+              .insert([initialBalance]);
+            
+            if (insertError) throw insertError;
+            setRegisterBalance(initialBalance);
+          } else {
+            setRegisterBalance(existingData[0]);
+          }
+          return;
+        }
+        throw error;
+      }
+
+      setRegisterBalance(data);
+    } catch (error) {
+      console.error('レジ残高の取得に失敗しました:', error);
+      alert('レジ残高の取得に失敗しました');
+    }
+  };
+
   // 商品を取引に追加する関数
   const handleAddItem = async () => {
     if (!selectedCategory) return;
@@ -191,10 +274,13 @@ export function App() {
       is_current: true
     };
 
+    console.log('新しい取引データ:', newTransaction);
+
     try {
       setIsLoading(true);
       if (transaction.id) {
         // 既存の取引を更新
+        console.log('既存の取引を更新:', transaction.id);
         const { error } = await supabase
           .from('transactions')
           .update(newTransaction)
@@ -203,6 +289,7 @@ export function App() {
         if (error) throw error;
       } else {
         // 新しい取引を作成
+        console.log('新しい取引を作成');
         const { error } = await supabase
           .from('transactions')
           .insert([newTransaction]);
@@ -210,6 +297,7 @@ export function App() {
         if (error) throw error;
       }
 
+      setTransaction(newTransaction);
       setSelectedCategory('');
       setSelectedItem('');
       setCustomPrice('');
@@ -234,23 +322,40 @@ export function App() {
 
     try {
       setIsLoading(true);
-      const { error } = await supabase
+
+      // 現在の取引を保存
+      const { error: insertError } = await supabase
         .from('transactions')
-        .update({
+        .insert([{
           ...transaction,
-          is_closed: true,
-          is_current: false
-        })
-        .eq('id', transaction.id);
+          is_current: true
+        }]);
 
-      if (error) throw error;
+      if (insertError) throw insertError;
 
+      // レジ残高を更新
+      const newBalance = {
+        id: registerBalance.id,
+        cash: registerBalance.cash + transaction.total,
+        last_updated: new Date().toISOString()
+      };
+
+      const { error: updateError } = await supabase
+        .from('register_balance')
+        .update(newBalance)
+        .eq('id', registerBalance.id);
+
+      if (updateError) throw updateError;
+
+      setRegisterBalance(newBalance);
       await fetchSalesHistory();
+
+      // 新しい取引を開始
       setTransaction({ items: [], total: 0 });
       setReceivedAmount('');
     } catch (error) {
       console.error('レジ締めに失敗しました:', error);
-      alert(handleSupabaseError(error));
+      alert('レジ締めに失敗しました');
     } finally {
       setIsLoading(false);
     }
@@ -309,11 +414,74 @@ export function App() {
     setIsEditModalOpen(true);
   };
 
+  // 支出処理を行う関数
+  const handleExpense = async () => {
+    const amount = Number(expenseAmount);
+    if (amount <= 0 || amount > registerBalance.cash) return;
+
+    try {
+      setIsLoading(true);
+
+      // レジ残高を更新
+      const newBalance = {
+        id: registerBalance.id,
+        cash: registerBalance.cash - amount,
+        last_updated: new Date().toISOString()
+      };
+
+      const { error: updateError } = await supabase
+        .from('register_balance')
+        .update(newBalance)
+        .eq('id', registerBalance.id);
+
+      if (updateError) throw updateError;
+
+      setRegisterBalance(newBalance);
+      setExpenseAmount('');
+      alert(`${amount.toLocaleString()}円の支出を記録しました`);
+    } catch (error) {
+      console.error('支出の記録に失敗しました:', error);
+      alert('支出の記録に失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // コンポーネントのレンダリング
   return (
     <div className="container mx-auto p-4 max-w-4xl">
       <h1 className="text-3xl font-bold mb-6 text-center">会計システム</h1>
       
+      {/* レジ残高表示セクション */}
+      <div className="bg-white p-4 rounded-lg shadow-md mb-6">
+        <h2 className="text-xl font-bold mb-4">レジ残高</h2>
+        <div className="flex justify-between items-center">
+          <div>
+            <div className="text-2xl font-bold">{registerBalance.cash.toLocaleString()}円</div>
+            <div className="text-sm text-gray-500">
+              最終更新: {new Date(registerBalance.last_updated).toLocaleString('ja-JP')}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              value={expenseAmount}
+              onChange={(e) => setExpenseAmount(e.target.value)}
+              placeholder="支出金額"
+              className="border p-2 rounded w-32"
+              min="0"
+            />
+            <button
+              onClick={handleExpense}
+              disabled={!expenseAmount || Number(expenseAmount) <= 0 || Number(expenseAmount) > registerBalance.cash}
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded disabled:bg-gray-300 transition-colors"
+            >
+              支出
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* 商品選択と追加セクション */}
       <div className="bg-white p-4 rounded-lg shadow-md mb-6">
         <h2 className="text-xl font-bold mb-4">商品選択</h2>
