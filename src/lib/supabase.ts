@@ -6,9 +6,8 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // デバッグ用：環境変数が正しく設定されているか確認
-if (import.meta.env.DEV) {
-  console.log('Supabase URL:', supabaseUrl);
-}
+console.log('Supabase URL:', supabaseUrl);
+console.log('Supabase Key:', supabaseAnonKey);
 
 // 環境変数が設定されていない場合はエラーをスロー
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -16,21 +15,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Supabaseクライアントのインスタンスを作成してエクスポート
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  realtime: {
-    params: {
-      eventsPerSecond: 10
-    }
-  },
-  db: {
-    schema: 'public'
-  },
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true
-  }
-});
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // エラーハンドリング用のヘルパー関数
 export const handleSupabaseError = (error: any) => {
