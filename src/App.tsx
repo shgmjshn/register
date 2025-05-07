@@ -108,7 +108,33 @@ export function App() {
   // コンポーネントマウント時の初期化処理
   // 売上履歴の取得とリアルタイム同期の設定を行います
   useEffect(() => {
+    // 初期データの取得
+    fetchCurrentTransaction();
     fetchSalesHistory();
+    fetchRegisterBalance();
+
+    // リアルタイム更新の購読
+    const subscription = supabase
+      .channel('current_transaction')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'transactions',
+        filter: 'is_current=eq.true'
+      }, (payload) => {
+        console.log('リアルタイム更新を受信:', payload);
+        if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+          setTransaction(payload.new as Transaction);
+        } else if (payload.eventType === 'DELETE') {
+          setTransaction({ items: [], total: 0, is_current: true });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      console.log('コンポーネントアンマウント: 購読解除');
+      subscription.unsubscribe();
+    };
   }, []);
 
   // 現在の取引を取得する関数
