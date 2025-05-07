@@ -1,3 +1,14 @@
+/**
+ * POSレジシステムのメインコンポーネント
+ * 
+ * このファイルは以下の主要な機能を提供します：
+ * 1. 商品管理：商品マスタの定義と管理
+ * 2. 取引管理：現在の取引状態の管理と更新
+ * 3. 売上管理：日次売上の集計と表示
+ * 4. レジ残高管理：現金残高の管理と更新
+ * 5. リアルタイム同期：Supabaseを使用したデータのリアルタイム更新
+ */
+
 import { useState, useEffect } from 'react';
 import { supabase, handleSupabaseError } from './lib/supabase';
 
@@ -60,6 +71,8 @@ const items: Items = {
 
 // メインのアプリケーションコンポーネント
 export function App() {
+  // ステート管理
+  // 各ステートは特定の機能を管理するために使用されます
   // 現在の取引状態を管理するステート
   const [transaction, setTransaction] = useState<Transaction>({
     items: [],
@@ -92,12 +105,14 @@ export function App() {
   // 支出金額を管理するステート
   const [expenseAmount, setExpenseAmount] = useState('');
 
-  // コンポーネントマウント時に売上履歴を取得
+  // コンポーネントマウント時の初期化処理
+  // 売上履歴の取得とリアルタイム同期の設定を行います
   useEffect(() => {
     fetchSalesHistory();
   }, []);
 
   // 現在の取引を取得する関数
+  // Supabaseから現在の取引データを取得し、存在しない場合は新規作成します
   const fetchCurrentTransaction = async () => {
     try {
       console.log('現在の取引を取得中...');
@@ -135,39 +150,8 @@ export function App() {
     }
   };
 
-  // リアルタイム同期の設定
-  useEffect(() => {
-    console.log('コンポーネントマウント: 初期データ取得開始');
-    // 初期データ取得
-    fetchCurrentTransaction();
-    fetchSalesHistory();
-    fetchRegisterBalance();
-
-    // リアルタイム更新の購読
-    const subscription = supabase
-      .channel('current_transaction')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'transactions',
-        filter: 'is_current=eq.true'
-      }, (payload) => {
-        console.log('リアルタイム更新を受信:', payload);
-        if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-          setTransaction(payload.new as Transaction);
-        } else if (payload.eventType === 'DELETE') {
-          setTransaction({ items: [], total: 0, is_current: true });
-        }
-      })
-      .subscribe();
-
-    return () => {
-      console.log('コンポーネントアンマウント: 購読解除');
-      subscription.unsubscribe();
-    };
-  }, []);
-
   // 売上履歴をSupabaseから取得する関数
+  // 日付ごとに取引をグループ化し、合計金額を計算します
   const fetchSalesHistory = async () => {
     try {
       setIsLoading(true);
@@ -202,6 +186,7 @@ export function App() {
   };
 
   // レジ残高を取得する関数
+  // 現在のレジ残高をSupabaseから取得します
   const fetchRegisterBalance = async () => {
     try {
       const { data, error } = await supabase
@@ -247,6 +232,7 @@ export function App() {
   };
 
   // 商品を取引に追加する関数
+  // 選択された商品を現在の取引に追加し、合計金額を更新します
   const handleAddItem = async () => {
     if (!selectedCategory) return;
     
@@ -309,7 +295,8 @@ export function App() {
     }
   };
 
-  // おつりを計算する関数
+  // お釣りを計算する関数
+  // 受け取った金額から合計金額を引いてお釣りを計算します
   const calculateChange = () => {
     const received = Number(receivedAmount);
     if (received < transaction.total) return '金額が不足しています';
@@ -317,6 +304,7 @@ export function App() {
   };
 
   // レジ締め処理を行う関数
+  // 現在の取引を確定し、新しい取引を開始します
   const handleCloseRegister = async () => {
     if (transaction.items.length === 0) return;
 
@@ -361,7 +349,8 @@ export function App() {
     }
   };
 
-  // 取引データを更新する関数
+  // 取引を更新する関数
+  // 既存の取引データを更新します
   const handleUpdateTransaction = async (updatedTransaction: Transaction) => {
     try {
       setIsLoading(true);
@@ -386,7 +375,8 @@ export function App() {
     }
   };
 
-  // 取引データを削除する関数
+  // 取引を削除する関数
+  // 指定された取引を削除します
   const handleDeleteTransaction = async (transactionId: string) => {
     if (!window.confirm('この取引を削除してもよろしいですか？')) return;
 
@@ -409,12 +399,14 @@ export function App() {
   };
 
   // 編集モーダルを開く関数
+  // 取引の編集モーダルを表示します
   const openEditModal = (transaction: Transaction) => {
     setEditingTransaction(transaction);
     setIsEditModalOpen(true);
   };
 
-  // 支出処理を行う関数
+  // 支出を記録する関数
+  // レジからの支出を記録し、残高を更新します
   const handleExpense = async () => {
     const amount = Number(expenseAmount);
     if (amount <= 0 || amount > registerBalance.cash) return;
