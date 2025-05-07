@@ -353,21 +353,42 @@ export function App() {
     try {
       setIsLoading(true);
 
-      // 現在の取引を確定（is_currentをfalseに設定）
-      const { error: updateError } = await supabase
-        .from('transactions')
-        .update({
-          is_current: false,
-          is_closed: true
-        })
-        .eq('id', transaction.id);
+      // 現在の取引を確定
+      let currentTransaction;
+      if (transaction.id) {
+        // 既存の取引を更新
+        const { data, error: updateError } = await supabase
+          .from('transactions')
+          .update({
+            is_current: false,
+            is_closed: true
+          })
+          .eq('id', transaction.id)
+          .select()
+          .single();
 
-      if (updateError) throw updateError;
+        if (updateError) throw updateError;
+        currentTransaction = data;
+      } else {
+        // 新しい取引を作成
+        const { data, error: insertError } = await supabase
+          .from('transactions')
+          .insert([{
+            ...transaction,
+            is_current: false,
+            is_closed: true
+          }])
+          .select()
+          .single();
+
+        if (insertError) throw insertError;
+        currentTransaction = data;
+      }
 
       // レジ残高を更新
       const newBalance = {
         id: registerBalance.id,
-        cash: registerBalance.cash + transaction.total,
+        cash: registerBalance.cash + currentTransaction.total,
         last_updated: new Date().toISOString()
       };
 
@@ -382,12 +403,23 @@ export function App() {
       await fetchSalesHistory();
 
       // 新しい取引を開始
-      const newTransaction = { items: [], total: 0, is_current: true };
-      setTransaction(newTransaction);
+      const { data: newTransactionData, error: newTransactionError } = await supabase
+        .from('transactions')
+        .insert([{
+          items: [],
+          total: 0,
+          is_current: true
+        }])
+        .select()
+        .single();
+
+      if (newTransactionError) throw newTransactionError;
+
+      setTransaction(newTransactionData);
       setReceivedAmount('');
     } catch (error) {
       console.error('レジ締めに失敗しました:', error);
-      alert('レジ締めに失敗しました');
+      alert(handleSupabaseError(error));
     } finally {
       setIsLoading(false);
     }

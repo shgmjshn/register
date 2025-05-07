@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'icon-192x192.png', 'icon-512x512.png', 'apple-touch-icon.png'],
+        includeAssets: ['favicon.ico', 'icon-192x192.png', 'icon-512x512.png'],
         manifest: {
           name: 'Register App',
           short_name: 'Register',
@@ -49,11 +49,6 @@ export default defineConfig(({ mode }) => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable'
-            },
-            {
-              src: 'apple-touch-icon.png',
-              sizes: '180x180',
-              type: 'image/png'
             }
           ]
         },
