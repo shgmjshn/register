@@ -156,6 +156,14 @@ export function App() {
           // データが存在しない場合は新しい取引を作成
           const newTransaction = { items: [], total: 0, is_current: true };
           console.log('新しい取引を作成:', newTransaction);
+          
+          // 新しい取引をデータベースに保存
+          const { error: insertError } = await supabase
+            .from('transactions')
+            .insert([newTransaction]);
+
+          if (insertError) throw insertError;
+          
           setTransaction(newTransaction);
           return;
         }
@@ -168,6 +176,14 @@ export function App() {
       } else {
         console.log('取引データなし、新しい取引を作成');
         const newTransaction = { items: [], total: 0, is_current: true };
+        
+        // 新しい取引をデータベースに保存
+        const { error: insertError } = await supabase
+          .from('transactions')
+          .insert([newTransaction]);
+
+        if (insertError) throw insertError;
+        
         setTransaction(newTransaction);
       }
     } catch (error) {
@@ -337,15 +353,16 @@ export function App() {
     try {
       setIsLoading(true);
 
-      // 現在の取引を保存
-      const { error: insertError } = await supabase
+      // 現在の取引を確定（is_currentをfalseに設定）
+      const { error: updateError } = await supabase
         .from('transactions')
-        .insert([{
-          ...transaction,
-          is_current: true
-        }]);
+        .update({
+          is_current: false,
+          is_closed: true
+        })
+        .eq('id', transaction.id);
 
-      if (insertError) throw insertError;
+      if (updateError) throw updateError;
 
       // レジ残高を更新
       const newBalance = {
@@ -354,18 +371,19 @@ export function App() {
         last_updated: new Date().toISOString()
       };
 
-      const { error: updateError } = await supabase
+      const { error: balanceError } = await supabase
         .from('register_balance')
         .update(newBalance)
         .eq('id', registerBalance.id);
 
-      if (updateError) throw updateError;
+      if (balanceError) throw balanceError;
 
       setRegisterBalance(newBalance);
       await fetchSalesHistory();
 
       // 新しい取引を開始
-      setTransaction({ items: [], total: 0 });
+      const newTransaction = { items: [], total: 0, is_current: true };
+      setTransaction(newTransaction);
       setReceivedAmount('');
     } catch (error) {
       console.error('レジ締めに失敗しました:', error);
