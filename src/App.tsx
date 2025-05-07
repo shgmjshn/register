@@ -142,49 +142,43 @@ export function App() {
   const fetchCurrentTransaction = async () => {
     try {
       console.log('現在の取引を取得中...');
-      const { data, error } = await supabase
+      // 最新の現在の取引を取得
+      const { data: currentTransactions, error: fetchError } = await supabase
         .from('transactions')
         .select('*')
         .filter('is_current', 'eq', true)
-        .maybeSingle();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      console.log('取得結果:', { data, error });
+      console.log('取得結果:', { currentTransactions, fetchError });
 
-      if (error) {
-        console.error('取引取得エラー:', error);
-        if (error.code === 'PGRST116') {
-          // データが存在しない場合は新しい取引を作成
-          const newTransaction = { items: [], total: 0, is_current: true };
-          console.log('新しい取引を作成:', newTransaction);
-          
-          // 新しい取引をデータベースに保存
-          const { error: insertError } = await supabase
-            .from('transactions')
-            .insert([newTransaction]);
-
-          if (insertError) throw insertError;
-          
-          setTransaction(newTransaction);
-          return;
-        }
-        throw error;
+      if (fetchError) {
+        console.error('取引取得エラー:', fetchError);
+        throw fetchError;
       }
 
-      if (data) {
-        console.log('取引データを設定:', data);
-        setTransaction(data);
+      if (currentTransactions && currentTransactions.length > 0) {
+        console.log('取引データを設定:', currentTransactions[0]);
+        setTransaction(currentTransactions[0]);
       } else {
         console.log('取引データなし、新しい取引を作成');
-        const newTransaction = { items: [], total: 0, is_current: true };
+        const newTransaction = { 
+          items: [], 
+          total: 0, 
+          is_current: true,
+          is_closed: false
+        };
         
         // 新しい取引をデータベースに保存
-        const { error: insertError } = await supabase
+        const { data: insertedData, error: insertError } = await supabase
           .from('transactions')
-          .insert([newTransaction]);
+          .insert([newTransaction])
+          .select()
+          .single();
 
         if (insertError) throw insertError;
         
-        setTransaction(newTransaction);
+        setTransaction(insertedData);
       }
     } catch (error) {
       console.error('現在の取引の取得に失敗しました:', error);
@@ -252,9 +246,13 @@ export function App() {
             .limit(1);
 
           if (!existingData || existingData.length === 0) {
+            // 重複チェックを行ってから挿入
             const { error: insertError } = await supabase
               .from('register_balance')
-              .insert([initialBalance]);
+              .upsert([initialBalance], {
+                onConflict: 'id',
+                ignoreDuplicates: true
+              });
             
             if (insertError) throw insertError;
             setRegisterBalance(initialBalance);
@@ -316,13 +314,24 @@ export function App() {
 
         if (error) throw error;
       } else {
+        // 既存の現在の取引を非アクティブにする
+        const { error: updateError } = await supabase
+          .from('transactions')
+          .update({ is_current: false })
+          .eq('is_current', true);
+
+        if (updateError) throw updateError;
+
         // 新しい取引を作成
         console.log('新しい取引を作成');
-        const { error } = await supabase
+        const { data, error: insertError } = await supabase
           .from('transactions')
-          .insert([newTransaction]);
+          .insert([newTransaction])
+          .select()
+          .single();
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        setTransaction(data);
       }
 
       setTransaction(newTransaction);
@@ -408,7 +417,8 @@ export function App() {
         .insert([{
           items: [],
           total: 0,
-          is_current: true
+          is_current: true,
+          is_closed: false
         }])
         .select()
         .single();
