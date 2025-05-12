@@ -357,8 +357,6 @@ export function App() {
   // レジ締め処理を行う関数
   // 現在の取引を確定し、新しい取引を開始します
   const handleCloseRegister = async () => {
-    if (transaction.items.length === 0) return;
-
     try {
       setIsLoading(true);
 
