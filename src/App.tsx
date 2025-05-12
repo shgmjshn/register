@@ -287,7 +287,7 @@ export function App() {
       itemName = selectedCategory;
       if (itemName === '席料' || itemName === 'その他') {
         price = Number(customPrice);
-        if (price <= 0) return;
+        if (isNaN(price)) return;  // 数値でない場合のみ制限
       } else {
         price = (items[itemName] as Item).price;
       }
@@ -360,6 +360,17 @@ export function App() {
     try {
       setIsLoading(true);
 
+      // 日付選択のプロンプトを表示
+      const selectedDate = window.prompt('取引日を入力してください（YYYY-MM-DD形式）', new Date().toISOString().split('T')[0]);
+      if (!selectedDate) return; // キャンセルされた場合
+
+      // 日付のバリデーション
+      const date = new Date(selectedDate);
+      if (isNaN(date.getTime())) {
+        alert('無効な日付形式です。YYYY-MM-DD形式で入力してください。');
+        return;
+      }
+
       // 現在の取引を確定
       let currentTransaction;
       if (transaction.id) {
@@ -368,7 +379,8 @@ export function App() {
           .from('transactions')
           .update({
             is_current: false,
-            is_closed: true
+            is_closed: true,
+            created_at: date.toISOString()  // 指定された日付を設定
           })
           .eq('id', transaction.id)
           .select()
@@ -383,7 +395,8 @@ export function App() {
           .insert([{
             ...transaction,
             is_current: false,
-            is_closed: true
+            is_closed: true,
+            created_at: date.toISOString()  // 指定された日付を設定
           }])
           .select()
           .single();
@@ -660,7 +673,7 @@ export function App() {
       <div className="flex gap-4 mb-6">
         <button
           onClick={handleCloseRegister}
-          disabled={transaction.items.length === 0 || isLoading}
+          disabled={isLoading}
           className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg flex-1 disabled:bg-gray-300 transition-colors"
         >
           {isLoading ? '処理中...' : 'レジ締め'}
